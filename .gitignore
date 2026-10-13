@@ -1,0 +1,15 @@
+# Secrets
+backend/.env
+
+# Python virtual environment and cache
+backend/.venv/
+__pycache__/
+*.py[cod]
+
+# Next.js build and dependencies
+frontend/.next/
+frontend/node_modules/
+
+# Frontend environment files
+frontend/.env*
+!frontend/.env.example
