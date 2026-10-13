@@ -1,15 +1,13 @@
 import json
 from pathlib import Path
 import os
-from io import BytesIO
 import asyncio
+
 from dotenv import load_dotenv
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
-
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -18,7 +16,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is missing from backend/.env")
+    raise RuntimeError("GEMINI_API_KEY is missing from environment variables")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -30,13 +28,17 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://earthy-ruddy.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Reuse the existing frontend dataset.
+# Load the shared food dataset.
 BASE_DIR = Path(__file__).resolve().parent
 FOODS_FILE = BASE_DIR.parent / "frontend" / "data" / "foods.json"
 
@@ -135,6 +137,7 @@ def calculate_nutrition(request: NutritionRequest):
         },
     }
 
+
 @app.post("/meals/analyze-photo")
 async def analyze_meal_photo(photo: UploadFile = File(...)):
     """Identify foods and estimate portion sizes from a meal photo."""
@@ -184,7 +187,6 @@ async def analyze_meal_photo(photo: UploadFile = File(...)):
     """
 
     try:
-        
         response = None
 
         for attempt in range(3):
@@ -203,25 +205,29 @@ async def analyze_meal_photo(photo: UploadFile = File(...)):
                     },
                 )
                 break
-            except Exception as error:
+            except Exception:
                 if attempt == 2:
                     raise
                 await asyncio.sleep(2 ** (attempt + 1))
 
+        if response is None or not response.text:
+            raise ValueError("Gemini returned an empty response.")
 
         result = json.loads(response.text)
 
-        if not isinstance(result.get("foods"), list):
+        if not isinstance(result, dict) or not isinstance(
+            result.get("foods"), list
+        ):
             raise ValueError("Gemini returned an invalid foods list.")
 
         return result
-
-    except HTTPException:
-        raise
 
     except Exception as error:
         print(f"Gemini error: {type(error).__name__}: {error}")
         raise HTTPException(
             status_code=503,
-            detail="Food recognition is temporarily unavailable. Please try again in a minute.",
+            detail=(
+                "Food recognition is temporarily unavailable. "
+                "Please try again in a minute."
+            ),
         ) from error
